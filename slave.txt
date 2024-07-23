@@ -1,0 +1,268 @@
+package main
+
+import (
+	"fmt"
+	"net"
+
+	"time"
+)
+
+// id ,name ,num of stude , hours
+func main() {
+	stopper := 0
+
+	var n_func int
+	//buf := make([]byte, 1024)
+
+	conn, err := net.Dial("tcp", "10.0.161.114:8888")
+	if err != nil {
+		fmt.Printf("Failed to connect to %s: %v\n", err)
+		return
+	}
+	defer conn.Close()
+
+	for stopper == 0 {
+		buf := make([]byte, 1000)
+
+		fmt.Println("Choose number of function :")
+		fmt.Println("1. Insert Student , 2. Delete Student 3. Update Student 4. Select 5.\n Insert Course 6. Update Course 7. Delete Course \n write any number to Close the program")
+		fmt.Scanln(&n_func)
+		var operation1, operation2, operation3, operation4, operation5 string
+		if n_func == 1 {
+			fmt.Println("Enter the ID :")
+			fmt.Scanln(&operation1)
+			fmt.Println("Enter the NAME :")
+			fmt.Scanln(&operation2)
+			fmt.Println("Enter the LEVEL :")
+			fmt.Scanln(&operation3)
+			fmt.Println("Enter the GPA :")
+			fmt.Scanln(&operation4)
+			fmt.Println("Enter the AGE :")
+			fmt.Scanln(&operation5)
+
+			order := "Insert student" + "," + operation1 + "," + operation2 + "," + operation3 + "," + operation4 + "," + operation5 + "," + "done"
+			_, err = conn.Write([]byte(order))
+			if err != nil {
+				fmt.Printf("Failed to send  command to %s: %v\n", err)
+				return
+			}
+
+			_, err = conn.Read(buf)
+			if err != nil {
+				fmt.Println("Error writing to master read:", err)
+				return
+			}
+
+			fmt.Println(string(buf))
+			time.Sleep(5 * time.Second)
+
+		} else if n_func == 2 {
+			fmt.Println("Enter ID of name you want to delete")
+			fmt.Scanln(&operation1)
+			order := "Delete student" + "," + operation1 + "," + "done"
+			_, err = conn.Write([]byte(order))
+			if err != nil {
+				fmt.Printf("Failed to send  command to %s: %v\n", err)
+				return
+			}
+			//fmt.Println("sssss")
+			_, err = conn.Read(buf)
+			if err != nil {
+				fmt.Println("Error writing to master read:", err)
+				return
+			}
+
+			fmt.Println(string(buf))
+			time.Sleep(5 * time.Second)
+
+		} else if n_func == 3 {
+			fmt.Println("Enter the ID :")
+			fmt.Scanln(&operation1)
+			fmt.Println("IF you want to update NAME enter the NEW VALUE OR not Enter q :")
+			fmt.Scanln(&operation2)
+			fmt.Println("IF you want to update LEVEL enter the NEW VALUE OR not Enter 0 :")
+			fmt.Scanln(&operation3)
+			fmt.Println("IF you want to update GPA enter the NEW VALUE OR not Enter 0 :")
+			fmt.Scanln(&operation4)
+			fmt.Println("IF you want to update AGE enter the NEW VALUE OR not Enter 0 :")
+			fmt.Scanln(&operation5)
+
+			order := "Update student" + "," + operation1 + "," + operation2 + "," + operation3 + "," + operation4 + "," + operation5 + "," + "done"
+			_, err = conn.Write([]byte(order))
+			if err != nil {
+				fmt.Printf("Failed to send  command to %s: %v\n", err)
+				return
+			}
+			_, err = conn.Read(buf)
+			if err != nil {
+				fmt.Println("Error writing to master read:", err)
+				return
+			}
+
+			fmt.Println(string(buf))
+			time.Sleep(5 * time.Second)
+
+		} else if n_func == 4 {
+			fmt.Println("1. Select from Students Table 2. Select from Courses Table")
+
+			//fmt.Println("Enter the ID :")
+			fmt.Scanln(&operation1)
+			if operation1 == "1" {
+				order := "Select student" + "," + operation1 + "," + "done"
+				_, err = conn.Write([]byte(order))
+				if err != nil {
+					fmt.Printf("Failed to send  command to %s: %v\n", err)
+					return
+				}
+				for {
+					//fmt.Println("read")
+					_, err = conn.Read(buf)
+					if err != nil {
+						fmt.Println("Error writing to master read:", err)
+						return
+					}
+
+					x := string(buf)
+					var length int
+					for i, b := range buf {
+						if b == 0 {
+							length = i
+							break
+						}
+					}
+
+					newBuf := buf[:length]
+					//fmt.Println(x)
+
+					if x[:3] == "end" {
+						break
+					} else {
+						fmt.Println(string(newBuf))
+						time.Sleep(time.Second * 4)
+					}
+
+				}
+			} else if operation1 == "2" {
+				order := "Select courses" + "," + operation1 + "," + "done"
+				_, err = conn.Write([]byte(order))
+				if err != nil {
+					fmt.Printf("Failed to send  command to %s: %v\n", err)
+					return
+				}
+				for {
+					_, err = conn.Read(buf)
+					if err != nil {
+						fmt.Println("Error writing to master read:", err)
+						return
+					}
+
+					x := string(buf)
+					var length int
+					for i, b := range buf {
+						if b == 0 {
+							length = i
+							break
+						}
+					}
+
+					newBuf := buf[:length]
+
+					if x[:3] == "end" {
+						break
+					} else {
+						fmt.Println(string(newBuf))
+						time.Sleep(time.Second * 4)
+					}
+
+				}
+			}
+
+		} else if n_func == 5 {
+			fmt.Println("Enter the ID of course :")
+			fmt.Scanln(&operation1)
+			fmt.Println("Enter the NAME of course:")
+			fmt.Scanln(&operation2)
+			fmt.Println("Enter the Numbers of students :")
+			fmt.Scanln(&operation3)
+			fmt.Println("Enter the Numbers of hours :")
+			fmt.Scanln(&operation4)
+			//fmt.Println("Enter the Numbers of hours :")
+			//fmt.Scanln(&operation5)
+
+			order := "Insert course" + "," + operation1 + "," + operation2 + "," + operation3 + "," + operation4 + "," + "done"
+			_, err = conn.Write([]byte(order))
+			if err != nil {
+				fmt.Printf("Failed to send  command to %s: %v\n", err)
+				return
+			}
+			_, err = conn.Read(buf)
+			if err != nil {
+				fmt.Println("Error writing to master read:", err)
+				return
+			}
+
+			fmt.Println(string(buf))
+			time.Sleep(5 * time.Second)
+
+		} else if n_func == 6 {
+			fmt.Println("Enter the ID of Course:")
+			fmt.Scanln(&operation1)
+			fmt.Println("IF you want to update NAME of cousre enter the NEW VALUE OR not Enter q :")
+			fmt.Scanln(&operation2)
+			fmt.Println("IF you want to update Numbers of students enter the NEW VALUE OR not Enter 0 :")
+			fmt.Scanln(&operation3)
+			fmt.Println("IF you want to update Numbers of hours enter the NEW VALUE OR not Enter 0 :")
+			fmt.Scanln(&operation4)
+
+			order := "Update course" + "," + operation1 + "," + operation2 + "," + operation3 + "," + operation4 + "," + "done"
+			_, err = conn.Write([]byte(order))
+			if err != nil {
+				fmt.Printf("Failed to send  command to %s: %v\n", err)
+				return
+			}
+			_, err = conn.Read(buf)
+			if err != nil {
+				fmt.Println("Error writing to master read:", err)
+				return
+			}
+
+			fmt.Println(string(buf))
+			time.Sleep(5 * time.Second)
+
+		} else if n_func == 7 {
+			fmt.Println("Enter ID of the course you want to delete")
+			fmt.Scanln(&operation1)
+			order := "Delete course" + "," + operation1 + "," + "done"
+			_, err = conn.Write([]byte(order))
+			if err != nil {
+				fmt.Printf("Failed to send  command to %s: %v\n", err)
+				return
+			}
+			_, err = conn.Read(buf)
+			if err != nil {
+				fmt.Println("Error writing to master read:", err)
+				return
+			}
+
+			fmt.Println(string(buf))
+			time.Sleep(5 * time.Second)
+
+		} else {
+			order := string(n_func) + "," + "close"
+			_, err = conn.Write([]byte(order))
+			if err != nil {
+				fmt.Printf("Failed to send  command to %s: %v\n", err)
+				return
+			}
+			//time.Sleep(8 * time.Second)
+			return
+		}
+	}
+
+}
+func handelstring(s string) string {
+	if len(s) > 255 {
+		s = s[:20]
+	}
+	return s
+}

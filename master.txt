@@ -1,0 +1,447 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	_ "github.com/go-sql-driver/mysql"
+	"net"
+	"time"
+
+	//"os"
+	"reflect"
+	"strconv"
+	"strings"
+	"sync"
+)
+
+var (
+	slaveConnections = make(map[string]net.Conn)
+	mutex            sync.Mutex
+)
+
+func handlleSlave(conn net.Conn, school *sql.DB) {
+	addr := conn.RemoteAddr().String()
+
+	// Add slave connection to the map
+	mutex.Lock()
+	slaveConnections[addr] = conn
+	mutex.Unlock()
+
+	defer func() {
+		// Remove slave connection when it disconnects
+		mutex.Lock()
+		delete(slaveConnections, addr)
+		mutex.Unlock()
+		conn.Close()
+		fmt.Printf("Slave disconnected: %s\n", addr)
+	}()
+
+	fmt.Printf("Slave connected: %s\n", addr)
+
+	// Handle communication with the slave
+
+	var err error
+	buf := make([]byte, 1024)
+	//select_all_for_user(school, conn)
+
+	for {
+		//select_all_for_user(school, conn)
+		_, err = conn.Read(buf)
+		if err != nil {
+			fmt.Printf("Error reading command: %v\n", err)
+			return
+		}
+		command := string(buf)
+		values := strings.Split(command, ",")
+		id, err := strconv.Atoi(values[1])
+		if err != nil {
+			// Handle error if conversion fails
+			fmt.Println("Error:", err)
+			return
+		}
+
+		if values[0] == "Insert student" {
+
+			level := convert_str_to_int(values[3])
+			gpa := convert_str_to_float32(values[4])
+			age := convert_str_to_int(values[5])
+			insertStudent(school, id, values[2], level, gpa, age)
+			//fmt.Println("sssss")
+			//selectStudentAndSend(school, conn)
+
+			sendResponse(conn, "Inserted Student ID : "+values[1])
+			//conn.Write([]byte("inserted"))
+
+			//insertStudent(school, id, values[2],level,gpa,age)
+		} else if values[0] == "Delete student" {
+			deleteStudent(school, id)
+
+			sendResponse(conn, "Deleted Student ID : "+values[1])
+			//conn.Write([]byte("deleted"))2
+		} else if values[0] == "Select student" {
+			fmt.Println("std")
+			selectStudentAndSend(school, conn)
+			time.Sleep(time.Second * 5)
+			_, err1 := fmt.Fprintf(conn, "%s", "end")
+			if err1 != nil {
+				fmt.Println("Error writing to connection:", err1)
+			}
+			//if eror != nil {
+			//	print(eror)
+			//}
+			//fmt.Println("sssss")
+			//sendResponse(conn, value)
+			//conn.Write([]byte("deleted"))2
+		} else if values[0] == "Select courses" {
+			selectCourseAndSend(school, conn)
+			time.Sleep(time.Second * 5)
+			_, err1 := fmt.Fprintf(conn, "%s", "end")
+			if err1 != nil {
+				fmt.Println("Error writing to connection:", err1)
+			}
+			//if eror != nil {
+			//	print(eror)
+			//}
+			//fmt.Println("sssss")
+			//sendResponse(conn, value)
+			//conn.Write([]byte("deleted"))2
+		} else if values[0] == "Update student" {
+			//fmt.Println(values[2])
+			level := convert_str_to_int(values[3])
+			//fmt.Println(reflect.TypeOf(level))
+			//fmt.Println("level ", reflect.TypeOf(values[3]))
+			gpa := convert_str_to_float32(values[4])
+			fmt.Println("gpa", reflect.TypeOf(gpa))
+			fmt.Println("age ", reflect.TypeOf(values[5]))
+			age := convert_str_to_int(values[5])
+			fmt.Println("age ", age)
+
+			updateStudent(school, id, values[2], level, gpa, age)
+
+			sendResponse(conn, "Updated Student ID : "+values[1])
+			//conn.Write([]byte("updated"))
+			//fmt.Println(values[2])
+
+		} else if values[0] == "Insert course" {
+			n_student := convert_str_to_int(values[3])
+			n_hours := convert_str_to_int(values[4])
+			insertCourse(school, id, values[2], n_student, n_hours)
+			sendResponse(conn, "Inserted Course ID : "+values[1])
+
+			//conn.Write([]byte("inserted"))
+		} else if values[0] == "Update course" {
+			//fmt.Println(values[2])
+			n_student := convert_str_to_int(values[3])
+			//fmt.Println(reflect.TypeOf(level))
+			//fmt.Println("level ", reflect.TypeOf(values[3]))
+			n_hours := convert_str_to_int(values[4])
+
+			updateCourse(school, id, values[2], n_student, n_hours)
+			sendResponse(conn, "Update Course ID : "+values[1])
+			//conn.Write([]byte("updated"))
+
+		} else if values[0] == "Delete course" {
+			deleteCourse(school, id)
+			//conn.Write([]byte("deleted"))
+			sendResponse(conn, "Deleted Course ID : "+values[1])
+		} else {
+			fmt.Println(values[0])
+			fmt.Println("no command")
+		}
+	}
+
+}
+
+func main() {
+
+	pswd := "root"
+	school, err := sql.Open("mysql", "root:"+pswd+"@tcp(localhost:3307)/school")
+	if err != nil {
+		panic(err.Error())
+	}
+
+	//defer the close till after the main function has finished
+
+	fmt.Println("opened")
+	defer school.Close()
+
+	listener, err := net.Listen("tcp", ":8888")
+	if err != nil {
+		fmt.Println("Error listening:", err)
+		return
+	}
+	defer listener.Close()
+
+	fmt.Println("Master server started...")
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Println("Error accepting connection:", err)
+			continue
+		}
+
+		go handlleSlave(conn, school)
+	}
+}
+
+func sendResponse(conn net.Conn, message string) {
+	_, err := fmt.Fprintf(conn, "%s\n", message)
+	if err != nil {
+		fmt.Println("Error writing to connection:", err)
+	}
+
+	return
+}
+
+// student queries
+func insertStudent(db *sql.DB, id int, name string, level int, gpa float32, age int) (int64, error) {
+	name = handelstring(name)
+	result, err := db.Exec("INSERT INTO student (id,name,level,gpa,age) VALUES (?,?,?,?,?)", id, name, level, gpa, age)
+	if err != nil {
+		return 0, err
+	}
+	insertID, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	fmt.Println(err)
+	return insertID, nil
+}
+func updateStudent(db *sql.DB, id int, newName string, newlevel int, newgpa float32, newage int) error {
+	list := []interface{}{newName, newlevel, newgpa, newage}
+	//fmt.Println(newage)
+	for key, val := range list {
+		if val != "q" && key == 0 {
+			_, err := db.Exec("UPDATE student SET name = ? WHERE id = ?", newName, id)
+			if err != nil {
+				return err
+			}
+		} else if newlevel != 0 && key == 1 {
+			_, err := db.Exec("UPDATE student SET level = ? WHERE id = ?", newlevel, id)
+			if err != nil {
+				return err
+			}
+		} else if newgpa != 0.0 && key == 2 {
+			_, err := db.Exec("UPDATE student SET gpa = ? WHERE id = ?", newgpa, id)
+			if err != nil {
+				return err
+			}
+		} else if newlevel != 0 && key == 3 {
+			_, err := db.Exec("UPDATE student SET age = ? WHERE id = ?", newage, id)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+func deleteStudent(db *sql.DB, id int) error {
+	fmt.Println("delete: ", id)
+	_, err := db.Exec("DELETE FROM student WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// courses queries
+func insertCourse(db *sql.DB, id int, name string, num_of_students int, Hours_of_course int) (int64, error) {
+	name = handelstring(name)
+	result, err := db.Exec("INSERT INTO courses (id,name,num_of_students,Hours_of_course) VALUES (?,?,?,?)", id, name, num_of_students, Hours_of_course)
+	if err != nil {
+		return 0, err
+	}
+	insertID, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	fmt.Println(err)
+	return insertID, nil
+}
+
+func updateCourse(db *sql.DB, id int, newName string, new_num_of_students int, new_Hours_of_course int) error {
+	list := []interface{}{newName, new_num_of_students, new_Hours_of_course}
+	//fmt.Println(new_num_of_students)
+	for key, val := range list {
+		if val != "q" && key == 0 {
+			_, err := db.Exec("UPDATE courses SET name = ? WHERE id = ?", newName, id)
+			if err != nil {
+				return err
+			}
+		} else if new_num_of_students != 0 && key == 1 {
+			_, err := db.Exec("UPDATE courses SET num_of_students = ? WHERE id = ?", new_num_of_students, id)
+			if err != nil {
+				return err
+			}
+		} else if new_Hours_of_course != 0 && key == 2 {
+			_, err := db.Exec("UPDATE courses SET Hours_of_course = ? WHERE id = ?", new_Hours_of_course, id)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+func deleteCourse(db *sql.DB, id int) error {
+	_, err := db.Exec("DELETE FROM courses WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func handelstring(s string) string {
+	if len(s) > 255 {
+
+		s = s[:15]
+	}
+	return s
+}
+func convert_str_to_int(value string) int {
+	new_value, err := strconv.Atoi(value)
+	if err != nil {
+		// Handle error if conversion fails
+		fmt.Println("Error:", err)
+		return 0
+	}
+	return new_value
+}
+
+func convert_str_to_float32(value string) float32 {
+	num64, err := strconv.ParseFloat(value, 32)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return 0.0
+	}
+	num32 := float32(num64)
+
+	return num32
+}
+
+func selectStudentAndSend(db *sql.DB, conn net.Conn) (string, error) {
+	rows_of_students, err0 := db.Query("SELECT * FROM student")
+	if err0 != nil {
+		return "error", err0
+	}
+	defer rows_of_students.Close()
+	var ID_of_student int
+	var name_of_student string
+	var level int
+	var gpa float32
+	var age int
+	// Iterate over the rows
+	for rows_of_students.Next() {
+
+		// Scan the columns into variables
+		err := rows_of_students.Scan(&ID_of_student, &name_of_student, &level, &gpa, &age)
+		if err != nil {
+			panic(err.Error())
+		}
+		rowStr := fmt.Sprintf(" ID : %d , Name : %s, Level : %d , gpa : %f , Age : %d", ID_of_student, name_of_student, level, gpa, age)
+		_, err1 := fmt.Fprintf(conn, "%s\n", rowStr)
+
+		if err1 != nil {
+			fmt.Println("Error writing to connection:", err)
+		}
+	}
+	return "done", nil
+}
+func selectCourseAndSend(db *sql.DB, conn net.Conn) {
+	rows_of_courses, err0 := db.Query("SELECT * FROM courses")
+	if err0 != nil {
+		//return "error", err0
+		fmt.Println("error")
+	}
+	defer rows_of_courses.Close()
+	var ID_of_course int
+	var name_of_course string
+	var num_of_students int
+	var Hours_of_course int
+	// Iterate over the rows
+	for rows_of_courses.Next() {
+
+		// Scan the columns into variables
+		err := rows_of_courses.Scan(&ID_of_course, &name_of_course, &num_of_students, &Hours_of_course)
+		if err != nil {
+			panic(err.Error())
+		}
+		rowStr1 := fmt.Sprintf(" ID : %d , Name : %s, num of students : %d , hours of course : %d ", ID_of_course, name_of_course, num_of_students, Hours_of_course)
+		_, err1 := fmt.Fprintf(conn, "%s\n", rowStr1)
+
+		if err1 != nil {
+			fmt.Println("Error writing to connection:", err)
+		}
+		//sendResponse(conn,rowStr1)
+	}
+
+	//return "done", nil
+}
+
+//func select_all_for_user(db *sql.DB, conn net.Conn) {
+//	rows_of_students, err0 := db.Query("SELECT * FROM student")
+//	rows_of_courses, err0 := db.Query("SELECT * FROM courses")
+//
+//	if err0 != nil {
+//		fmt.Println("asd")
+//	}
+//	defer rows_of_students.Close()
+//	//defer rows_of_courses.Close()
+//
+//	//fmt.Println(rows_of_students.Next())
+//	for rows_of_students.Next() {
+//
+//		//fmt.Println("asdfg")
+//		var ID_of_student int
+//		var name_of_student string
+//		var level int
+//		var gpa float32
+//		var age int
+//		err := rows_of_students.Scan(&ID_of_student, &name_of_student, &level, &gpa, &age)
+//		if err != nil {
+//			panic(err.Error())
+//		}
+//		rowStr := fmt.Sprintf(" ID : %d , Name : %s, Level : %d , gpa : %f , Age : %d", ID_of_student, name_of_student, level, gpa, age)
+//		_, err1 := fmt.Fprintf(conn, "%s\n", rowStr)
+//
+//		if err1 != nil {
+//			fmt.Println("Error writing to connection:", err)
+//		}
+//		fmt.Println(rowStr)
+//		//file, err := os.OpenFile("", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+//		//if err != nil {
+//		//	return err
+//		//}
+//		//defer file.Close()
+//		//
+//		//// Write content to the file
+//		//_, err = file.WriteString(rowStr)
+//		//if err != nil {
+//		//	return err
+//		//}
+//		//return rowStr, nil
+//
+//	}
+//
+//	//time.Sleep(time.Second * 8)
+//
+//	for rows_of_courses.Next() {
+//		var ID_of_course int
+//		var name_of_course string
+//		var num_of_students int
+//		var Hours_of_course int
+//		err := rows_of_courses.Scan(&ID_of_course, &name_of_course, &num_of_students, &Hours_of_course)
+//		if err != nil {
+//			panic(err.Error())
+//		}
+//		rowStr1 := fmt.Sprintf(" ID : %d , Name : %s, num of students : %d , hours of course : %d ", ID_of_course, name_of_course, num_of_students, Hours_of_course)
+//		_, err1 := fmt.Fprintf(conn, "%s\n", rowStr1)
+//		if err1 != nil {
+//			fmt.Println("Error writing to connection:", err)
+//		}
+//		//return rowStr1, nil
+//
+//	}
+//	time.Sleep(time.Second * 5)
+//
+//}
